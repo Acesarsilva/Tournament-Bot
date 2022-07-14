@@ -3,60 +3,46 @@ import discord
 import logging
 from dotenv import load_dotenv
 from discord.ext import commands
+from databases.implementation.mongo_nick_repository import MongoNickRepository
+from databases.implementation.mongo_ticket_repository import MongoTicketRepository
+from extensions.ticket import TicketExtension
 
-class LendasBot(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-    
-    # Greetings
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print(f'Logged in as {self.bot.user} ({self.bot.user.id})')
+from init_bot import LendasBot
+from extensions.nick import NickExtension
+from extensions.message import MessageExtension
+from services.nick_service import NickService
+from services.ticket_service import TicketService
+from utils.mongo_connect import mongo_connect
 
-    # Reconnect
-    @commands.Cog.listener()
-    async def on_resumed(self):
-        print('Bot has reconnected!')
-    
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        # Uncomment line 26 for printing debug
-        # await ctx.send(error)
-
-        # Unknown command
-        if isinstance(error, commands.CommandNotFound):
-            await ctx.send('Invalid Command!')
-
-        # Bot does not have permission
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send('Bot Permission Missing!')
-
-
+# Logging
+LOGGER = logging.getLogger('Bot')
+LOGGER_HANDLER = logging.FileHandler(
+    filename='./logs/bot.log', encoding='utf-8', mode='w')
+# Discord
 intents = discord.Intents.default()
 intents.members = True
 intents.presences = True
-
-# Bot prefix
-bot = commands.Bot(command_prefix=commands.when_mentioned_or('&'),
+BOT = commands.Bot(command_prefix=commands.when_mentioned_or('&'),
                    description='Lendas e-Sports Bot', intents=intents)
 
-# Logging
-logger = logging.getLogger('discord')
-logger.setLevel(logging.DEBUG)
-handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
-logger.addHandler(handler)
-
-
-# Loading data from .env file
-load_dotenv()
-token = os.getenv('DISCORD_TOKEN')
+DISCORD_TOKEN = 'Your Discord Token'
 
 if __name__ == '__main__':
-    # Load extension
-    for filename in os.listdir('./commands'):
-        if filename.endswith('.py'):
-            bot.load_extension(f'commands.{filename[: -3]}')
-
-    bot.add_cog(LendasBot(bot))
-    bot.run(token, reconnect=True)
+    # Configure Logging
+    LOGGER_HANDLER.setFormatter(logging.Formatter(
+        '%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+    LOGGER.addHandler(LOGGER_HANDLER)
+    LOGGER.setLevel(logging.DEBUG)
+    # Starting mongoDB client
+    database = mongo_connect(port=27017, database_name='les-bot')
+    if(database is None):
+         LOGGER.fatal('Mongo connection failed')
+         print('Mongo connection failed')
+    else:
+        # Loading extensions
+        BOT.add_cog(LendasBot(BOT))
+        BOT.add_cog(MessageExtension(BOT))
+        BOT.add_cog(NickExtension(BOT, NickService(MongoNickRepository(database))))
+        BOT.add_cog(TicketExtension(BOT,TicketService(MongoTicketRepository(database))))
+        LOGGER.info('Bot now is running')
+        BOT.run(DISCORD_TOKEN, reconnect=True)
